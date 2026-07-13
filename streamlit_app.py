@@ -138,6 +138,7 @@ page = st.sidebar.radio("Navigation", [
     "Backtesting",
     "Portfolio",
     "Sentiment",
+    "Evaluation Modeles",
     "Alertes",
 ])
 
@@ -631,6 +632,123 @@ elif page == "Sentiment":
                                  textposition="outside"))
             fig.update_layout(title="Sentiment par ticker", yaxis_title="Polarite", height=400)
             fig.add_hline(y=0, line_dash="dash", line_color="gray")
+            st.plotly_chart(fig, use_container_width=True)
+
+
+# === PAGE : Evaluation Modeles ===
+elif page == "Evaluation Modeles":
+    st.title("📊 Evaluation des Modeles")
+    st.markdown("Compare la precision des modeles Prophet, XGBoost et LSTM.")
+
+    from models.evaluate import evaluate_xgboost, evaluate_prophet, evaluate_lstm
+
+    eval_ticker = st.selectbox("Ticker a evaluer", tickers, key="eval_ticker")
+
+    models_to_eval = st.multiselect(
+        "Modeles a evaluer",
+        ["XGBoost", "Prophet", "LSTM"],
+        default=["XGBoost", "Prophet"],
+        key="eval_models",
+    )
+
+    if st.button("Lancer l'evaluation"):
+        results = []
+
+        for model_name in models_to_eval:
+            with st.spinner(f"Evaluation de {model_name}..."):
+                if model_name == "XGBoost":
+                    r = evaluate_xgboost(df, eval_ticker)
+                elif model_name == "Prophet":
+                    r = evaluate_prophet(df, eval_ticker)
+                elif model_name == "LSTM":
+                    r = evaluate_lstm(df, eval_ticker)
+                else:
+                    r = None
+
+                if r:
+                    results.append(r)
+                else:
+                    st.warning(f"{model_name} non disponible pour {eval_ticker}")
+
+        if results:
+            # Tableau comparatif
+            st.markdown("### Metriques de precision")
+            st.markdown("""
+            - **RMSE** : Erreur quadratique moyenne (plus bas = meilleur)
+            - **MAE** : Erreur absolue moyenne (plus bas = meilleur)
+            - **MAPE** : Erreur en pourcentage (plus bas = meilleur)
+            - **R2** : Coefficient de determination (plus proche de 1 = meilleur)
+            """)
+
+            df_metrics = pd.DataFrame([{
+                "Modele": r["model"],
+                "RMSE": r["rmse"],
+                "MAE": r["mae"],
+                "MAPE (%)": r["mape"],
+                "R2": r["r2"],
+                "Jours test": r["test_size"],
+            } for r in results])
+
+            st.dataframe(df_metrics, use_container_width=True, hide_index=True)
+
+            # Meilleur modele
+            best = min(results, key=lambda x: x["mape"])
+            st.success(f"Meilleur modele pour {eval_ticker} : **{best['model']}** (MAPE: {best['mape']:.2f}%)")
+
+            # Graphique comparatif des metriques
+            st.markdown("### Comparaison visuelle")
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                fig = go.Figure()
+                for r in results:
+                    fig.add_trace(go.Bar(name=r["model"], x=["RMSE", "MAE"], y=[r["rmse"], r["mae"]]))
+                fig.update_layout(title="RMSE & MAE (plus bas = meilleur)", barmode="group", height=350)
+                st.plotly_chart(fig, use_container_width=True)
+
+            with col2:
+                fig = go.Figure()
+                for r in results:
+                    fig.add_trace(go.Bar(name=r["model"], x=["MAPE (%)", "R2"], y=[r["mape"], r["r2"]]))
+                fig.update_layout(title="MAPE & R2", barmode="group", height=350)
+                st.plotly_chart(fig, use_container_width=True)
+
+            # Graphique predictions vs reel
+            st.markdown("### Predictions vs Prix reel")
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=results[0]["dates"], y=results[0]["y_test"],
+                mode="lines", name="Prix reel", line=dict(color="black", width=2),
+            ))
+
+            colors = {"XGBoost": "blue", "Prophet": "green", "LSTM": "red"}
+            for r in results:
+                fig.add_trace(go.Scatter(
+                    x=r["dates"], y=r["y_pred"],
+                    mode="lines", name=f"{r['model']} prediction",
+                    line=dict(color=colors.get(r["model"], "gray"), dash="dash"),
+                ))
+
+            fig.update_layout(
+                title=f"Predictions vs Reel — {eval_ticker}",
+                xaxis_title="Date", yaxis_title="Prix ($)",
+                height=500,
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+            # Erreur par modele dans le temps
+            st.markdown("### Erreur de prediction dans le temps")
+            fig = go.Figure()
+            for r in results:
+                errors = [abs(t - p) for t, p in zip(r["y_test"], r["y_pred"])]
+                fig.add_trace(go.Scatter(
+                    x=r["dates"], y=errors,
+                    mode="lines", name=f"{r['model']} erreur absolue",
+                    line=dict(color=colors.get(r["model"], "gray")),
+                ))
+            fig.update_layout(title="Erreur absolue par jour", xaxis_title="Date",
+                              yaxis_title="Erreur ($)", height=400)
             st.plotly_chart(fig, use_container_width=True)
 
 
