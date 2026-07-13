@@ -136,6 +136,8 @@ page = st.sidebar.radio("Navigation", [
     "Prevision (Forecast)",
     "Comparaison",
     "Backtesting",
+    "Portfolio",
+    "Sentiment",
     "Alertes",
 ])
 
@@ -444,6 +446,191 @@ elif page == "Backtesting":
                                  marker_color="#636EFA"))
             fig.update_layout(title="Strategie IA vs Buy & Hold",
                               yaxis_title="Rendement (%)", barmode="group", height=400)
+            st.plotly_chart(fig, use_container_width=True)
+
+
+# === PAGE : Portfolio ===
+elif page == "Portfolio":
+    st.title("💼 Portfolio Manager")
+
+    from api.portfolio import (
+        load_portfolio, buy, sell, get_portfolio_value, reset_portfolio, load_transactions
+    )
+
+    # Valeur du portefeuille
+    pf_value = get_portfolio_value(df)
+
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Valeur totale", f"${pf_value['total_portfolio_value']:,.2f}")
+    with col2:
+        st.metric("Cash disponible", f"${pf_value['cash']:,.2f}")
+    with col3:
+        st.metric("Investissements", f"${pf_value['total_holdings_value']:,.2f}")
+    with col4:
+        st.metric("P&L total", f"${pf_value['total_pnl']:,.2f}",
+                  delta=f"{pf_value['total_pnl_pct']:+.2f}%")
+
+    st.markdown("---")
+
+    # Acheter / Vendre
+    st.markdown("### Transaction")
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        tx_action = st.selectbox("Action", ["Acheter", "Vendre"])
+    with col2:
+        tx_ticker = st.selectbox("Ticker", tickers, key="tx_ticker")
+    with col3:
+        tx_qty = st.number_input("Quantite", min_value=0.01, value=1.0, step=0.1)
+    with col4:
+        # Prix actuel
+        ticker_data = df[df["Ticker"] == tx_ticker].sort_index()
+        current_price = float(ticker_data["Close"].iloc[-1]) if not ticker_data.empty else 0
+        tx_price = st.number_input("Prix ($)", min_value=0.01, value=round(current_price, 2))
+
+    if st.button("Executer la transaction"):
+        if tx_action == "Acheter":
+            result = buy(tx_ticker, tx_qty, tx_price)
+        else:
+            result = sell(tx_ticker, tx_qty, tx_price)
+
+        if "error" in result:
+            st.error(result["error"])
+        else:
+            st.success(result["message"])
+            st.rerun()
+
+    st.markdown("---")
+
+    # Holdings
+    st.markdown("### Positions actuelles")
+    if pf_value["holdings"]:
+        df_holdings = pd.DataFrame(pf_value["holdings"])
+        df_holdings = df_holdings.rename(columns={
+            "ticker": "Ticker", "quantity": "Quantite", "avg_price": "Prix moyen ($)",
+            "current_price": "Prix actuel ($)", "invested": "Investi ($)",
+            "current_value": "Valeur ($)", "pnl": "P&L ($)", "pnl_pct": "P&L (%)",
+        })
+        st.dataframe(df_holdings, use_container_width=True, hide_index=True)
+
+        # Graphique repartition
+        fig = px.pie(df_holdings, values="Valeur ($)", names="Ticker",
+                     title="Repartition du portefeuille")
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("Aucune position. Achetez des actifs pour commencer.")
+
+    st.markdown("---")
+
+    # Historique transactions
+    st.markdown("### Historique des transactions")
+    transactions = load_transactions()
+    if transactions:
+        df_tx = pd.DataFrame(transactions)
+        df_tx = df_tx.rename(columns={
+            "type": "Type", "ticker": "Ticker", "quantity": "Quantite",
+            "price": "Prix ($)", "total": "Total ($)", "date": "Date",
+        })
+        st.dataframe(df_tx[::-1], use_container_width=True, hide_index=True)
+    else:
+        st.info("Aucune transaction.")
+
+    # Reset
+    st.markdown("---")
+    if st.button("Reinitialiser le portefeuille ($10,000)"):
+        reset_portfolio()
+        st.success("Portefeuille reinitialise.")
+        st.rerun()
+
+
+# === PAGE : Sentiment ===
+elif page == "Sentiment":
+    st.title("📰 Analyse de Sentiment — News")
+    st.markdown("Analyse le sentiment des dernieres news financieres pour predire la tendance.")
+
+    from api.sentiment import analyze_ticker_sentiment
+
+    st.markdown(f"### Sentiment pour {selected_ticker}")
+
+    if st.button("Analyser le sentiment"):
+        with st.spinner(f"Analyse des news de {selected_ticker}..."):
+            result = analyze_ticker_sentiment(selected_ticker)
+
+        if result["news_count"] == 0:
+            st.warning(f"Aucune news trouvee pour {selected_ticker}.")
+        else:
+            # Score global
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                sentiment_color = {"POSITIF": "green", "NEGATIF": "red", "NEUTRE": "orange"}
+                color = sentiment_color.get(result["sentiment_label"], "gray")
+                st.markdown(f"**Sentiment global:** :{color}[{result['sentiment_label']}]")
+            with col2:
+                st.metric("Polarite moyenne", f"{result['avg_polarity']:.3f}")
+            with col3:
+                signal_emoji = {
+                    "ACHAT FORT": "🟢🟢", "ACHAT": "🟢",
+                    "VENTE FORT": "🔴🔴", "VENTE": "🔴",
+                    "NEUTRE": "🟡",
+                }
+                st.metric("Signal", f"{signal_emoji.get(result['signal'], '')} {result['signal']}")
+
+            st.markdown("---")
+
+            # Articles
+            st.markdown(f"### Dernieres news ({result['news_count']} articles)")
+            for article in result["articles"]:
+                sentiment_icon = {"POSITIF": "🟢", "NEGATIF": "🔴", "NEUTRE": "🟡"}
+                icon = sentiment_icon.get(article["sentiment"], "⚪")
+                st.markdown(f"{icon} **{article['title']}**")
+                st.caption(f"{article['publisher']} | Polarite: {article['polarity']}")
+                st.markdown("---")
+
+            # Graphique des polarites
+            if result["articles"]:
+                polarities = [a["polarity"] for a in result["articles"]]
+                titles = [a["title"][:40] + "..." for a in result["articles"]]
+
+                fig = go.Figure()
+                colors = ["green" if p > 0 else "red" if p < 0 else "gray" for p in polarities]
+                fig.add_trace(go.Bar(x=titles, y=polarities, marker_color=colors))
+                fig.update_layout(title="Polarite par article", yaxis_title="Polarite",
+                                  height=350, xaxis_tickangle=-45)
+                fig.add_hline(y=0, line_dash="dash", line_color="gray")
+                st.plotly_chart(fig, use_container_width=True)
+
+    # Multi-ticker
+    st.markdown("---")
+    st.markdown("### Comparaison multi-tickers")
+    selected_for_sentiment = st.multiselect("Tickers a analyser", tickers, default=tickers[:4],
+                                            key="sentiment_tickers")
+    if st.button("Analyser tous"):
+        with st.spinner("Analyse en cours..."):
+            from api.sentiment import analyze_multiple_tickers
+            all_sentiments = analyze_multiple_tickers(selected_for_sentiment)
+
+        if all_sentiments:
+            data_sent = []
+            for s in all_sentiments:
+                data_sent.append({
+                    "Ticker": s["ticker"],
+                    "Sentiment": s["sentiment_label"],
+                    "Polarite": s["avg_polarity"],
+                    "Signal": s["signal"],
+                    "Articles": s["news_count"],
+                })
+            df_sent = pd.DataFrame(data_sent)
+            st.dataframe(df_sent, use_container_width=True, hide_index=True)
+
+            # Graphique
+            fig = go.Figure()
+            colors = ["green" if p > 0 else "red" if p < 0 else "gray"
+                      for p in df_sent["Polarite"]]
+            fig.add_trace(go.Bar(x=df_sent["Ticker"], y=df_sent["Polarite"],
+                                 marker_color=colors, text=df_sent["Signal"],
+                                 textposition="outside"))
+            fig.update_layout(title="Sentiment par ticker", yaxis_title="Polarite", height=400)
+            fig.add_hline(y=0, line_dash="dash", line_color="gray")
             st.plotly_chart(fig, use_container_width=True)
 
 
