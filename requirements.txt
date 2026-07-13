@@ -1,38 +1,10 @@
-# Data manipulation
-pandas==2.2.2
-numpy==1.26.4
-
-# Machine Learning
-scikit-learn==1.5.0
-xgboost==2.0.3
-statsmodels==0.14.2
-
-# Time series
-prophet==1.1.5
-
-# Deep learning (optionnel - LSTM)
-# tensorflow==2.16.1
-
-# API
-fastapi==0.111.0
-uvicorn==0.30.1
-pydantic==2.7.1
-
-# Dashboard
-streamlit==1.35.0
-plotly==5.22.0
-
-# Database
-sqlalchemy==2.0.30
-
-# Finance data
-yfinance==0.2.38
-
-# Notebooks
-jupyter==1.0.0
-ipykernel==6.29.4
-
-# Utilities
-python-dotenv==1.0.1
-joblib==1.4.2
-requests==2.32.3
+streamlit
+plotly
+pandas
+numpy
+scikit-learn
+xgboost
+prophet
+joblib
+yfinance
+requests

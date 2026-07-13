@@ -78,10 +78,10 @@ def predict_xgboost(df: pd.DataFrame, ticker: str):
 
 
 def predict_lstm(df: pd.DataFrame, ticker: str):
-    """Prediction LSTM."""
-    import torch
-    from models.lstm_model import load_model, SEQUENCE_LENGTH
+    """Prediction LSTM (necessite PyTorch)."""
     try:
+        import torch
+        from models.lstm_model import load_model, SEQUENCE_LENGTH
         model, scaler = load_model(ticker)
         data = df[df["Ticker"] == ticker].sort_index()
         close_prices = data["Close"].values[-SEQUENCE_LENGTH:].reshape(-1, 1)
@@ -90,6 +90,8 @@ def predict_lstm(df: pd.DataFrame, ticker: str):
         with torch.no_grad():
             pred_scaled = model(input_tensor).numpy()
         return float(scaler.inverse_transform(pred_scaled)[0][0])
+    except ImportError:
+        return None
     except Exception:
         return None
 
