@@ -12,6 +12,10 @@ import numpy as np
 from models.prophet_model import load_model as load_prophet, train_prophet
 from models.xgboost_model import load_model as load_xgboost, FEATURE_COLS
 from models.lstm_model import load_model as load_lstm, LSTMNetwork, SEQUENCE_LENGTH
+from api.alerts import (
+    load_alerts, add_alert, remove_alert, check_alerts,
+    get_alert_history, reset_alert
+)
 
 import torch
 from sklearn.preprocessing import MinMaxScaler
@@ -292,6 +296,57 @@ def history(
     ]
 
     return {"ticker": ticker, "days": len(records), "history": records}
+
+
+# --- Routes d'alertes ---
+
+@app.get("/alerts", summary="Liste des alertes configurees")
+def list_alerts():
+    return {"alerts": load_alerts()}
+
+
+@app.post("/alerts", summary="Creer une nouvelle alerte")
+def create_alert(
+    ticker: str = Query(description="Ticker (ex: AAPL)"),
+    condition: str = Query(description="Condition: price_above, price_below, change_above, change_below"),
+    threshold: float = Query(description="Seuil (prix en $ ou variation en %)"),
+    email: str = Query(default=None, description="Email pour recevoir l'alerte (optionnel)"),
+):
+    ticker = ticker.upper()
+    valid_conditions = ["price_above", "price_below", "change_above", "change_below"]
+    if condition not in valid_conditions:
+        raise HTTPException(status_code=400, detail=f"Condition invalide. Choix: {valid_conditions}")
+
+    alert = add_alert(ticker, condition, threshold, email)
+    return {"message": "Alerte creee", "alert": alert}
+
+
+@app.delete("/alerts/{alert_id}", summary="Supprimer une alerte")
+def delete_alert(alert_id: int):
+    remove_alert(alert_id)
+    return {"message": f"Alerte {alert_id} supprimee"}
+
+
+@app.post("/alerts/{alert_id}/reset", summary="Reactiver une alerte declenchee")
+def reset_alert_route(alert_id: int):
+    reset_alert(alert_id)
+    return {"message": f"Alerte {alert_id} reactivee"}
+
+
+@app.get("/alerts/check", summary="Verifier les alertes maintenant")
+def check_alerts_now():
+    df = get_data()
+    triggered = check_alerts(df)
+    return {
+        "checked_at": pd.Timestamp.now().isoformat(),
+        "triggered_count": len(triggered),
+        "triggered": triggered,
+    }
+
+
+@app.get("/alerts/history", summary="Historique des alertes declenchees")
+def alerts_history():
+    return {"history": get_alert_history()}
 
 
 @app.get("/models/status", summary="Statut des modeles disponibles")

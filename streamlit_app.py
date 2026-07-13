@@ -135,6 +135,7 @@ page = st.sidebar.radio("Navigation", [
     "Prediction",
     "Prevision (Forecast)",
     "Comparaison",
+    "Alertes",
 ])
 
 st.sidebar.markdown("---")
@@ -336,3 +337,85 @@ elif page == "Comparaison":
         st.dataframe(df_compare, use_container_width=True, hide_index=True)
     else:
         st.info("Selectionnez au moins un ticker.")
+
+
+# === PAGE : Alertes ===
+elif page == "Alertes":
+    st.title("🔔 Alertes de prix")
+
+    from api.alerts import load_alerts, add_alert, remove_alert, check_alerts, get_alert_history, reset_alert
+
+    # Creer une alerte
+    st.markdown("### Creer une alerte")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        alert_ticker = st.selectbox("Ticker", tickers, key="alert_ticker")
+    with col2:
+        alert_condition = st.selectbox("Condition", [
+            "price_above", "price_below", "change_above", "change_below"
+        ], format_func=lambda x: {
+            "price_above": "Prix depasse (>)",
+            "price_below": "Prix descend sous (<)",
+            "change_above": "Hausse de X%",
+            "change_below": "Baisse de X%",
+        }[x])
+    with col3:
+        alert_threshold = st.number_input("Seuil", min_value=0.0, value=100.0, step=1.0)
+
+    alert_email = st.text_input("Email (optionnel)", placeholder="votre@email.com")
+
+    if st.button("Creer l'alerte"):
+        alert = add_alert(alert_ticker, alert_condition, alert_threshold,
+                         alert_email if alert_email else None)
+        st.success(f"Alerte creee ! (ID: {alert['id']})")
+
+    st.markdown("---")
+
+    # Verifier les alertes
+    if st.button("Verifier les alertes maintenant"):
+        triggered = check_alerts(df)
+        if triggered:
+            for a in triggered:
+                st.warning(f"🚨 {a.get('message', a['ticker'])}")
+        else:
+            st.info("Aucune alerte declenchee.")
+
+    st.markdown("---")
+
+    # Alertes actives
+    st.markdown("### Alertes actives")
+    alerts = load_alerts()
+    if alerts:
+        for alert in alerts:
+            col1, col2, col3 = st.columns([4, 1, 1])
+            with col1:
+                status = "🔴 Declenchee" if alert["triggered"] else "🟢 Active"
+                condition_text = {
+                    "price_above": f"Prix > ${alert['threshold']}",
+                    "price_below": f"Prix < ${alert['threshold']}",
+                    "change_above": f"Hausse > {alert['threshold']}%",
+                    "change_below": f"Baisse > {alert['threshold']}%",
+                }[alert["condition"]]
+                st.write(f"{status} | **{alert['ticker']}** — {condition_text}")
+            with col2:
+                if alert["triggered"]:
+                    if st.button("Reactiver", key=f"reset_{alert['id']}"):
+                        reset_alert(alert["id"])
+                        st.rerun()
+            with col3:
+                if st.button("Supprimer", key=f"del_{alert['id']}"):
+                    remove_alert(alert["id"])
+                    st.rerun()
+    else:
+        st.info("Aucune alerte configuree.")
+
+    st.markdown("---")
+
+    # Historique
+    st.markdown("### Historique des alertes")
+    history = get_alert_history()
+    if history:
+        df_hist = pd.DataFrame(history)
+        st.dataframe(df_hist, use_container_width=True, hide_index=True)
+    else:
+        st.info("Aucune alerte declenchee pour le moment.")
