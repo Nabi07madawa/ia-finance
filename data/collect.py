@@ -16,6 +16,10 @@ TICKERS = [
     "TSLA",   # Tesla
     "^GSPC",  # S&P 500
     "^FCHI",  # CAC 40
+    "BTC-USD",  # Bitcoin
+    "ETH-USD",  # Ethereum
+    "BNB-USD",  # Binance Coin
+    "SOL-USD",  # Solana
 ]
 
 DEFAULT_PERIOD = "5y"

@@ -135,6 +135,7 @@ page = st.sidebar.radio("Navigation", [
     "Prediction",
     "Prevision (Forecast)",
     "Comparaison",
+    "Backtesting",
     "Alertes",
 ])
 
@@ -337,6 +338,113 @@ elif page == "Comparaison":
         st.dataframe(df_compare, use_container_width=True, hide_index=True)
     else:
         st.info("Selectionnez au moins un ticker.")
+
+
+# === PAGE : Backtesting ===
+elif page == "Backtesting":
+    st.title("💰 Backtesting — Simulation de portefeuille")
+    st.markdown("Simule ce qui se serait passe si vous aviez suivi les predictions du modele.")
+
+    from models.backtest import backtest_strategy
+
+    col1, col2 = st.columns(2)
+    with col1:
+        bt_ticker = st.selectbox("Ticker", tickers, key="bt_ticker")
+    with col2:
+        bt_capital = st.number_input("Capital initial ($)", min_value=100, value=10000, step=1000)
+
+    if st.button("Lancer le backtest"):
+        with st.spinner(f"Simulation en cours pour {bt_ticker}..."):
+            result = backtest_strategy(df, bt_ticker, initial_capital=float(bt_capital))
+
+        if result:
+            # Metriques principales
+            st.markdown("### Resultats")
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Capital final", f"${result['final_value']:,.2f}",
+                          delta=f"{result['strategy_return']:+.1f}%")
+            with col2:
+                st.metric("Buy & Hold", f"{result['buy_hold_return']:+.1f}%")
+            with col3:
+                st.metric("Surperformance", f"{result['outperformance']:+.1f}%",
+                          delta=f"{result['outperformance']:+.1f}%")
+            with col4:
+                st.metric("Win Rate", f"{result['win_rate']:.0f}%")
+
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Trades", result["total_trades"])
+            with col2:
+                st.metric("Max Drawdown", f"{result['max_drawdown']:.1f}%")
+            with col3:
+                st.metric("Sharpe Ratio", f"{result['sharpe_ratio']:.2f}")
+
+            st.markdown("---")
+
+            # Graphique evolution du portefeuille
+            st.markdown("### Evolution du portefeuille")
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=result["dates"], y=result["portfolio_values"],
+                name="Strategie IA", line=dict(color="#00CC96"),
+            ))
+            fig.add_trace(go.Scatter(
+                x=result["dates"], y=result["buy_hold_values"],
+                name="Buy & Hold", line=dict(color="#636EFA", dash="dash"),
+            ))
+            fig.add_hline(y=bt_capital, line_dash="dot", line_color="gray",
+                          annotation_text=f"Capital initial: ${bt_capital:,}")
+            fig.update_layout(
+                yaxis_title="Valeur ($)", xaxis_title="Date", height=450,
+                hovermode="x unified",
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+            # Trades
+            if result["trades"]:
+                st.markdown("### Historique des trades")
+                df_trades = pd.DataFrame(result["trades"])
+                df_trades["date"] = [result["dates"][t["day"]] if t["day"] < len(result["dates"]) else "N/A"
+                                     for t in result["trades"]]
+                df_trades["price"] = df_trades["price"].round(2)
+                st.dataframe(df_trades[["date", "action", "price"]].rename(columns={
+                    "date": "Date", "action": "Action", "price": "Prix ($)"
+                }), use_container_width=True, hide_index=True)
+        else:
+            st.warning(f"Pas assez de donnees pour backtester {bt_ticker}.")
+
+    # Backtest multi-tickers
+    st.markdown("---")
+    st.markdown("### Comparaison multi-tickers")
+
+    if st.button("Backtester tous les tickers"):
+        with st.spinner("Backtesting en cours sur tous les tickers..."):
+            from models.backtest import backtest_multiple
+            all_results = backtest_multiple(df, initial_capital=float(bt_capital))
+
+        if all_results:
+            df_bt = pd.DataFrame([{
+                "Ticker": r["ticker"],
+                "Strategie (%)": r["strategy_return"],
+                "Buy&Hold (%)": r["buy_hold_return"],
+                "Surperformance (%)": r["outperformance"],
+                "Win Rate (%)": r["win_rate"],
+                "Trades": r["total_trades"],
+                "Max Drawdown (%)": r["max_drawdown"],
+            } for r in all_results])
+            df_bt = df_bt.sort_values("Surperformance (%)", ascending=False)
+            st.dataframe(df_bt, use_container_width=True, hide_index=True)
+
+            # Graphique comparatif
+            fig = go.Figure()
+            fig.add_trace(go.Bar(name="Strategie IA", x=df_bt["Ticker"], y=df_bt["Strategie (%)"],
+                                 marker_color="#00CC96"))
+            fig.add_trace(go.Bar(name="Buy & Hold", x=df_bt["Ticker"], y=df_bt["Buy&Hold (%)"],
+                                 marker_color="#636EFA"))
+            fig.update_layout(title="Strategie IA vs Buy & Hold",
+                              yaxis_title="Rendement (%)", barmode="group", height=400)
+            st.plotly_chart(fig, use_container_width=True)
 
 
 # === PAGE : Alertes ===
