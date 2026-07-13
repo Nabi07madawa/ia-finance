@@ -139,6 +139,7 @@ page = st.sidebar.radio("Navigation", [
     "Portfolio",
     "Sentiment",
     "Evaluation Modeles",
+    "Recommandations",
     "Alertes",
 ])
 
@@ -750,6 +751,131 @@ elif page == "Evaluation Modeles":
             fig.update_layout(title="Erreur absolue par jour", xaxis_title="Date",
                               yaxis_title="Erreur ($)", height=400)
             st.plotly_chart(fig, use_container_width=True)
+
+
+# === PAGE : Recommandations ===
+elif page == "Recommandations":
+    st.title("🎯 Recommandations Automatiques")
+    st.markdown("Combine tous les indicateurs techniques pour generer des signaux d'achat/vente.")
+
+    from api.recommendations import get_all_recommendations, analyze_ticker_signals
+
+    if st.button("Generer les recommandations", type="primary"):
+        with st.spinner("Analyse de tous les tickers..."):
+            recommendations = get_all_recommendations(df, tickers)
+
+        if recommendations:
+            # Resume global
+            achats = [r for r in recommendations if "ACHAT" in r["recommendation"]]
+            ventes = [r for r in recommendations if "VENTE" in r["recommendation"]]
+            neutres = [r for r in recommendations if r["recommendation"] == "NEUTRE"]
+
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Signaux ACHAT", len(achats))
+            with col2:
+                st.metric("Signaux VENTE", len(ventes))
+            with col3:
+                st.metric("NEUTRE", len(neutres))
+
+            st.markdown("---")
+
+            # Tableau des recommandations
+            st.markdown("### Classement des actifs")
+            df_reco = pd.DataFrame([{
+                "Ticker": r["ticker"],
+                "Prix": f"${r['current_price']:.2f}",
+                "Var. 1j (%)": f"{r['change_1d']:+.2f}%",
+                "Recommandation": r["recommendation"],
+                "Confiance (%)": r["confidence"],
+                "Score": r["net_score"],
+            } for r in recommendations])
+
+            st.dataframe(df_reco, use_container_width=True, hide_index=True)
+
+            # Top achats
+            if achats:
+                st.markdown("### Top Achats")
+                for r in achats[:5]:
+                    emoji = "🟢🟢" if "FORT" in r["recommendation"] else "🟢"
+                    st.markdown(f"{emoji} **{r['ticker']}** — {r['recommendation']} "
+                                f"(confiance: {r['confidence']:.0f}%) | Prix: ${r['current_price']:.2f}")
+
+            # Top ventes
+            if ventes:
+                st.markdown("### Top Ventes")
+                for r in ventes[:5]:
+                    emoji = "🔴🔴" if "FORT" in r["recommendation"] else "🔴"
+                    st.markdown(f"{emoji} **{r['ticker']}** — {r['recommendation']} "
+                                f"(confiance: {r['confidence']:.0f}%) | Prix: ${r['current_price']:.2f}")
+
+            # Graphique score par ticker
+            st.markdown("### Score net par ticker")
+            fig = go.Figure()
+            colors = ["green" if r["net_score"] > 0 else "red" if r["net_score"] < 0 else "gray"
+                      for r in recommendations]
+            fig.add_trace(go.Bar(
+                x=[r["ticker"] for r in recommendations],
+                y=[r["net_score"] for r in recommendations],
+                marker_color=colors,
+                text=[r["recommendation"] for r in recommendations],
+                textposition="outside",
+            ))
+            fig.update_layout(title="Score de recommandation (positif = achat, negatif = vente)",
+                              yaxis_title="Score", height=400)
+            fig.add_hline(y=0, line_dash="dash", line_color="gray")
+            st.plotly_chart(fig, use_container_width=True)
+
+    # Detail par ticker
+    st.markdown("---")
+    st.markdown("### Detail des signaux par ticker")
+    detail_ticker = st.selectbox("Voir les signaux de", tickers, key="reco_detail")
+
+    if st.button("Analyser ce ticker"):
+        with st.spinner(f"Analyse de {detail_ticker}..."):
+            result = analyze_ticker_signals(df, detail_ticker)
+
+        if result["signals"]:
+            # Recommandation principale
+            reco_color = {"ACHAT FORT": "green", "ACHAT": "green", "VENTE FORT": "red",
+                          "VENTE": "red", "NEUTRE": "orange"}
+            color = reco_color.get(result["recommendation"], "gray")
+            st.markdown(f"## :{color}[{result['recommendation']}] — Confiance: {result['confidence']:.0f}%")
+
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Prix actuel", f"${result['current_price']:.2f}")
+            with col2:
+                st.metric("Variation 1j", f"{result['change_1d']:+.2f}%")
+            with col3:
+                st.metric("Score net", f"{result['net_score']:+.3f}")
+
+            # Tableau des signaux
+            st.markdown("### Indicateurs techniques")
+            df_signals = pd.DataFrame([{
+                "Indicateur": s["indicator"],
+                "Valeur": s["value"],
+                "Signal": s["direction"],
+                "Force": f"{s['strength']:.2f}",
+            } for s in result["signals"]])
+            st.dataframe(df_signals, use_container_width=True, hide_index=True)
+
+            # Jauge de signaux
+            fig = go.Figure()
+            for i, s in enumerate(result["signals"]):
+                color = "green" if s["direction"] == "ACHAT" else "red" if s["direction"] == "VENTE" else "gray"
+                value = s["strength"] if s["direction"] == "ACHAT" else -s["strength"] if s["direction"] == "VENTE" else 0
+                fig.add_trace(go.Bar(
+                    x=[value], y=[s["indicator"]], orientation="h",
+                    marker_color=color, showlegend=False,
+                ))
+            fig.update_layout(title="Force des signaux par indicateur",
+                              xaxis_title="Force (+ = achat, - = vente)",
+                              height=300, xaxis=dict(range=[-1, 1]))
+            fig.add_vline(x=0, line_dash="dash", line_color="gray")
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.warning("Pas assez de donnees pour generer des signaux.")
 
 
 # === PAGE : Alertes ===

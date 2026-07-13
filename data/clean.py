@@ -104,7 +104,54 @@ def add_features(df: pd.DataFrame) -> pd.DataFrame:
 
     df["RSI_14"] = df.groupby("Ticker")["Close"].transform(compute_rsi)
 
-    print(f"  ->Features ajoutées : Return_1d, MA_7/20/50, Volatility_20d, RSI_14")
+    # MACD (Moving Average Convergence Divergence)
+    df["EMA_12"] = df.groupby("Ticker")["Close"].transform(
+        lambda x: x.ewm(span=12, adjust=False).mean()
+    )
+    df["EMA_26"] = df.groupby("Ticker")["Close"].transform(
+        lambda x: x.ewm(span=26, adjust=False).mean()
+    )
+    df["MACD"] = df["EMA_12"] - df["EMA_26"]
+    df["MACD_Signal"] = df.groupby("Ticker")["MACD"].transform(
+        lambda x: x.ewm(span=9, adjust=False).mean()
+    )
+    df["MACD_Hist"] = df["MACD"] - df["MACD_Signal"]
+    df.drop(columns=["EMA_12", "EMA_26"], inplace=True)
+
+    # Bollinger Bands (20 jours)
+    df["BB_Middle"] = df["MA_20"]
+    df["BB_Std"] = df.groupby("Ticker")["Close"].transform(
+        lambda x: x.rolling(window=20).std()
+    )
+    df["BB_Upper"] = df["BB_Middle"] + 2 * df["BB_Std"]
+    df["BB_Lower"] = df["BB_Middle"] - 2 * df["BB_Std"]
+    df["BB_Width"] = (df["BB_Upper"] - df["BB_Lower"]) / df["BB_Middle"]
+    df["BB_Position"] = (df["Close"] - df["BB_Lower"]) / (df["BB_Upper"] - df["BB_Lower"])
+    df.drop(columns=["BB_Std"], inplace=True)
+
+    # ATR (Average True Range) sur 14 jours
+    if "High" in df.columns and "Low" in df.columns:
+        prev_close = df.groupby("Ticker")["Close"].shift(1)
+        tr1 = df["High"] - df["Low"]
+        tr2 = (df["High"] - prev_close).abs()
+        tr3 = (df["Low"] - prev_close).abs()
+        df["TR"] = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+        df["ATR_14"] = df.groupby("Ticker")["TR"].transform(
+            lambda x: x.rolling(window=14).mean()
+        )
+        df.drop(columns=["TR"], inplace=True)
+
+    # Stochastic Oscillator (%K et %D)
+    if "High" in df.columns and "Low" in df.columns:
+        low_14 = df.groupby("Ticker")["Low"].transform(lambda x: x.rolling(14).min())
+        high_14 = df.groupby("Ticker")["High"].transform(lambda x: x.rolling(14).max())
+        df["Stoch_K"] = 100 * (df["Close"] - low_14) / (high_14 - low_14)
+        df["Stoch_D"] = df.groupby("Ticker")["Stoch_K"].transform(
+            lambda x: x.rolling(window=3).mean()
+        )
+
+    print(f"  ->Features ajoutees : Return_1d, MA_7/20/50, Volatility_20d, RSI_14,")
+    print(f"    MACD, Bollinger Bands, ATR_14, Stochastic")
     return df
 
 
