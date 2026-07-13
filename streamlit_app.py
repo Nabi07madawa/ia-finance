@@ -766,6 +766,7 @@ elif page == "Recommandations":
 
         if recommendations:
             # Resume global
+            recommendations = [r for r in recommendations if "current_price" in r]
             achats = [r for r in recommendations if "ACHAT" in r["recommendation"]]
             ventes = [r for r in recommendations if "VENTE" in r["recommendation"]]
             neutres = [r for r in recommendations if r["recommendation"] == "NEUTRE"]
@@ -782,6 +783,7 @@ elif page == "Recommandations":
 
             # Tableau des recommandations
             st.markdown("### Classement des actifs")
+            valid_recos = [r for r in recommendations if "current_price" in r]
             df_reco = pd.DataFrame([{
                 "Ticker": r["ticker"],
                 "Prix": f"${r['current_price']:.2f}",
@@ -789,7 +791,7 @@ elif page == "Recommandations":
                 "Recommandation": r["recommendation"],
                 "Confiance (%)": r["confidence"],
                 "Score": r["net_score"],
-            } for r in recommendations])
+            } for r in valid_recos])
 
             st.dataframe(df_reco, use_container_width=True, hide_index=True)
 
