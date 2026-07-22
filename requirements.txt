@@ -9,3 +9,5 @@ joblib
 yfinance
 requests
 textblob
+supabase
+python-dotenv
