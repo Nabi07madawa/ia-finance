@@ -25,9 +25,49 @@ MODELS_DIR = Path(__file__).parent / "models" / "saved"
 
 @st.cache_data(ttl=3600)
 def load_data() -> pd.DataFrame:
-    """Charge les donnees. Si pas de fichier local, collecte et nettoie."""
-    all_path = PROCESSED_DIR / "all_tickers_clean.csv"
+    """Charge les donnees depuis Supabase, fallback sur CSV local."""
+    try:
+        from database.db import get_client
+        client = get_client()
+        # Charger tous les prix depuis Supabase
+        data = []
+        # Supabase limite a 1000 lignes par requete, on pagine
+        offset = 0
+        batch_size = 1000
+        while True:
+            result = client.table("prices").select("*").order("date").range(offset, offset + batch_size - 1).execute()
+            if not result.data:
+                break
+            data.extend(result.data)
+            if len(result.data) < batch_size:
+                break
+            offset += batch_size
 
+        if data:
+            df = pd.DataFrame(data)
+            df["Date"] = pd.to_datetime(df["date"])
+            df = df.set_index("Date")
+            df = df.rename(columns={
+                "open": "Open", "high": "High", "low": "Low",
+                "close": "Close", "volume": "Volume", "ticker": "Ticker",
+            })
+            df = df[["Open", "High", "Low", "Close", "Volume", "Ticker"]]
+            df["Open"] = pd.to_numeric(df["Open"], errors="coerce")
+            df["High"] = pd.to_numeric(df["High"], errors="coerce")
+            df["Low"] = pd.to_numeric(df["Low"], errors="coerce")
+            df["Close"] = pd.to_numeric(df["Close"], errors="coerce")
+            df["Volume"] = pd.to_numeric(df["Volume"], errors="coerce")
+
+            # Ajouter les features techniques
+            from data.clean import add_features
+            df = add_features(df)
+            return df
+
+    except Exception as e:
+        st.sidebar.warning(f"Supabase indisponible, lecture CSV locale")
+
+    # Fallback CSV
+    all_path = PROCESSED_DIR / "all_tickers_clean.csv"
     if not all_path.exists():
         st.info("Premiere execution : collecte et nettoyage des donnees...")
         from data.collect import collect_all
@@ -455,9 +495,18 @@ elif page == "Backtesting":
 elif page == "Portfolio":
     st.title("💼 Portfolio Manager")
 
-    from api.portfolio import (
-        load_portfolio, buy, sell, get_portfolio_value, reset_portfolio, load_transactions
-    )
+    try:
+        from database.portfolio_db import (
+            load_portfolio_db as load_portfolio, buy_db as buy, sell_db as sell,
+            get_portfolio_value_db as get_portfolio_value, reset_portfolio_db as reset_portfolio,
+            load_transactions_db as load_transactions,
+        )
+        _use_db = True
+    except Exception:
+        from api.portfolio import (
+            load_portfolio, buy, sell, get_portfolio_value, reset_portfolio, load_transactions
+        )
+        _use_db = False
 
     # Valeur du portefeuille
     pf_value = get_portfolio_value(df)
